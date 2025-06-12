@@ -380,7 +380,9 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(
+        self, idx, max_new_tokens, temperature=1.0, top_k=None, greedy: bool = False
+    ):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -396,15 +398,20 @@ class GPT(nn.Module):
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(idx_cond)
             # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
-            # optionally crop the logits to only the top k options
-            if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float("Inf")
-            # apply softmax to convert logits to (normalized) probabilities
-            probs = F.softmax(logits, dim=-1)
-            # sample from the distribution
-            idx_next = torch.multinomial(probs, num_samples=1)
+            if greedy:
+                # greedy sampling: take the argmax of the logits
+                logits = logits[:, -1, :]
+                idx_next = logits.argmax(dim=-1, keepdim=True)  # shape (b, 1)
+            else:
+                logits = logits[:, -1, :] / temperature
+                # optionally crop the logits to only the top k options
+                if top_k is not None:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float("Inf")
+                # apply softmax to convert logits to (normalized) probabilities
+                probs = F.softmax(logits, dim=-1)
+                # sample from the distribution
+                idx_next = torch.multinomial(probs, num_samples=1)
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
@@ -464,7 +471,7 @@ if __name__ == "__main__":
         device_type="mps",  # or 'cuda' if you have a GPU
     )
 
-    for epoch in range(200):
+    for epoch in range(100):
         model.train()
         optimizer.zero_grad()
         logits, loss = model(input_ids, targets)
@@ -486,7 +493,11 @@ if __name__ == "__main__":
         # model.eval()
         with torch.no_grad():
             generated_ids = model.generate(
-                input_ids[:, :1].clone(), max_new_tokens=10, temperature=0.1, top_k=None
+                input_ids[:, :1].clone(),
+                max_new_tokens=10,
+                temperature=0.1,
+                top_k=None,
+                greedy=True,
             )
         generated_text = tokenizer.decode(generated_ids[0].tolist())
         print(f"Generated text after epoch {epoch + 1}: {generated_text}")
