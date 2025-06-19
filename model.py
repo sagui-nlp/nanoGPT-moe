@@ -127,8 +127,9 @@ class Block(nn.Module):
 
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
-        return x
+        o, loss = self.mlp(self.ln_2(x))
+        x = x + o
+        return x, loss
 
 
 @dataclass
@@ -143,7 +144,8 @@ class GPTConfig:
     n_experts: int = 2
     capacity_factor: float = 1.25
     k: int = 1
-    lambda_balance: float = 0.01
+    experts_weight: float = 0.001
+    router_weight: float = 0.01  
     # END MOE CONFIG
     dropout: float = 0.0
     # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
@@ -222,14 +224,16 @@ class GPT(nn.Module):
         # position embeddings of shape (t, n_embd)
         pos_emb = self.transformer.wpe(pos)
         x = self.transformer.drop(tok_emb + pos_emb)
+        loss = 0 
         for block in self.transformer.h:
-            x = block(x)
+            x, block_loss = block(x)
+            loss = loss + block_loss
         x = self.transformer.ln_f(x)
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
-            loss = F.cross_entropy(
+            loss = loss + F.cross_entropy(
                 logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
             )
         else:
@@ -438,10 +442,11 @@ if __name__ == "__main__":
         n_layer=1,
         n_head=2,
         n_embd=64,
-        n_experts=2,
+        n_experts=3,
         capacity_factor=1.25,
         k=1,
-        lambda_balance=0.01,
+        experts_weight=0.001,
+        router_weight = 0.01,
         dropout=0.2,
         bias=True,
     )
@@ -496,8 +501,8 @@ if __name__ == "__main__":
                 input_ids[:, :1].clone(),
                 max_new_tokens=10,
                 temperature=0.1,
-                top_k=None,
-                greedy=True,
+                top_k=1,
+                greedy=False,
             )
         generated_text = tokenizer.decode(generated_ids[0].tolist())
         print(f"Generated text after epoch {epoch + 1}: {generated_text}")

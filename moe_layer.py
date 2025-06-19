@@ -26,7 +26,8 @@ class MoELayer(nn.Module):
         self.n_experts = config.n_experts
         self.capacity_factor = config.capacity_factor
         self.k = config.k  # typically 1 or 2
-        self.lambda_balance = config.lambda_balance
+        self.experts_weight = config.experts_weight
+        self.router_weight = config.router_weight
 
         # Gate: projects hidden state to expert logits
         self.gate = nn.Linear(self.d_model, self.n_experts, bias=False)
@@ -87,13 +88,11 @@ class MoELayer(nn.Module):
             # Note: dispatch_mask entries are 0/1 for k=1, or up to count of times selected.
 
         # 4. Compute load & importance for balancing
-        load = dispatch_mask.sum(dim=0)  # (n_experts,)
-        importance = gate_probs.sum(dim=0)  # (n_experts,)
-        loss_load = F.mse_loss(load, load.mean().expand_as(load))
-        loss_importance = F.mse_loss(
-            importance, importance.mean().expand_as(importance)
-        )
-        balance_loss = self.lambda_balance * (loss_load + loss_importance)
+        router_loss = self.router_weight * (torch.logsumexp(gate_logits, dim=-1) ** 2.0).mean()
+        load = dispatch_mask.mean(dim=0)  # (n_experts,) [150, 200, 250,...]
+        importance = gate_probs.mean(dim=0)  # (n_experts,) [20, 5, 30, ...]
+        balance_loss = self.experts_weight * self.n_experts * (load * importance).sum()
+        moe_loss = router_loss + balance_loss
 
         # 5. Capacities
 
@@ -130,4 +129,4 @@ class MoELayer(nn.Module):
         # 9. Reshape back to (B, T, d)
         H_out = H_out_flat.view(B, T, d)
 
-        return H_out  # , balance_loss
+        return H_out, moe_loss
