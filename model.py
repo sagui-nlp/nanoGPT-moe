@@ -7,8 +7,8 @@ https://github.com/openai/gpt-2/blob/master/src/model.py
 https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
 """
 
-import math
 import inspect
+import math
 from dataclasses import dataclass
 
 import torch
@@ -58,7 +58,7 @@ class CausalSelfAttention(nn.Module):
                 ),
             )
 
-    def forward(self, x):
+    def forward(self, x, attention_mask=None):
         B, T, C = (
             x.size()
         )  # batch size, sequence length, embedding dimensionality (n_embd)
@@ -78,13 +78,23 @@ class CausalSelfAttention(nn.Module):
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
+
+            # print each input shape
+            # print(f"q shape: {q.shape}, k shape: {k.shape}, v shape: {v.shape}")
+            # if attention_mask is not None:
+            #     print(f"attention_mask shape: {attention_mask.shape}")
+
+            # unsqueese attention_mask to match nh (batch, n_head, T, T)
+            if attention_mask is not None:
+                attention_mask = attention_mask.unsqueeze(1)
+
             y = torch.nn.functional.scaled_dot_product_attention(
                 q,
                 k,
                 v,
-                attn_mask=None,
+                attn_mask=attention_mask,
                 dropout_p=self.dropout if self.training else 0,
-                is_causal=True,
+                is_causal=False,
             )
         else:
             # manual implementation of attention
@@ -125,8 +135,8 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MoELayer(config)
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, attention_mask=None):
+        x = x + self.attn(self.ln_1(x), attention_mask=attention_mask)
         o, loss = self.mlp(self.ln_2(x))
         x = x + o
         return x, loss
@@ -145,7 +155,7 @@ class GPTConfig:
     capacity_factor: float = 1.25
     k: int = 1
     experts_weight: float = 0.001
-    router_weight: float = 0.01  
+    router_weight: float = 0.01
     # END MOE CONFIG
     dropout: float = 0.0
     # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
@@ -208,7 +218,12 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(
+        self,
+        idx,
+        attention_mask=None,
+        targets=None,
+    ):
         device = idx.device
         b, t = idx.size()
         assert (
@@ -224,9 +239,9 @@ class GPT(nn.Module):
         # position embeddings of shape (t, n_embd)
         pos_emb = self.transformer.wpe(pos)
         x = self.transformer.drop(tok_emb + pos_emb)
-        loss = 0 
+        loss = 0
         for block in self.transformer.h:
-            x, block_loss = block(x)
+            x, block_loss = block(x, attention_mask=attention_mask)
             loss = loss + block_loss
         x = self.transformer.ln_f(x)
 
@@ -423,12 +438,13 @@ class GPT(nn.Module):
 
 
 if __name__ == "__main__":
-    from transformers import AutoTokenizer, AutoModelWithLMHead
+    from transformers import AutoTokenizer
 
     # Example usage of the GPT model
     tokenizer = AutoTokenizer.from_pretrained("pierreguillou/gpt2-small-portuguese")
 
     text = "Quem era Jim Henson? Jim Henson era um"
+
     inputs = tokenizer(text, return_tensors="pt")
     input_ids = inputs["input_ids"]
     targets = input_ids.clone()
@@ -446,7 +462,7 @@ if __name__ == "__main__":
         capacity_factor=1.25,
         k=1,
         experts_weight=0.001,
-        router_weight = 0.01,
+        router_weight=0.01,
         dropout=0.2,
         bias=True,
     )
