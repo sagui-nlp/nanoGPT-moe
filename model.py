@@ -92,9 +92,9 @@ class CausalSelfAttention(nn.Module):
                 q,
                 k,
                 v,
-                attn_mask=attention_mask,
+                # attn_mask=attention_mask,
                 dropout_p=self.dropout if self.training else 0,
-                is_causal=False,
+                is_causal=True,
             )
         else:
             # manual implementation of attention
@@ -251,6 +251,9 @@ class GPT(nn.Module):
             loss = loss + F.cross_entropy(
                 logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
             )
+            # loss = F.cross_entropy(
+            #     logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
+            # )
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             # note: using list [-1] to preserve the time dim

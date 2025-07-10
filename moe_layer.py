@@ -88,10 +88,13 @@ class MoELayer(nn.Module):
             # Note: dispatch_mask entries are 0/1 for k=1, or up to count of times selected.
 
         # 4. Compute load & importance for balancing
-        router_loss = self.router_weight * (torch.logsumexp(gate_logits, dim=-1) ** 2.0).mean()
+        router_loss = (
+            self.router_weight * (torch.logsumexp(gate_logits, dim=-1) ** 2.0).mean()
+        )
         load = dispatch_mask.mean(dim=0)  # (n_experts,) [150, 200, 250,...]
         importance = gate_probs.mean(dim=0)  # (n_experts,) [20, 5, 30, ...]
-        balance_loss = self.experts_weight * self.n_experts * (load * importance).sum()
+        balance_loss = self.experts_weight * self.n_experts * (load * importance).mean()
+        print(f"Router loss: {router_loss.item()}, Balance loss: {balance_loss.item()}")
         moe_loss = router_loss + balance_loss
 
         # 5. Capacities
