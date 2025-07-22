@@ -6,3 +6,9 @@
       3. Check loss separately (router loss and cross entropy)
    3. loss = 0.04 * k, expert_weight proportion
    4. balance_loss = self.experts_weight * self.n_experts * (load * importance).mean() # testing with mean and sum
+   5. check load
+
+
+----
+1. Embedding values >> Internal Values from MoE Experts layers
+2. add a layer for rejected tokens on experts processing

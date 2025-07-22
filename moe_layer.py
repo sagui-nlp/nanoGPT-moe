@@ -93,6 +93,7 @@ class MoELayer(nn.Module):
         )
         load = dispatch_mask.mean(dim=0)  # (n_experts,) [150, 200, 250,...]
         importance = gate_probs.mean(dim=0)  # (n_experts,) [20, 5, 30, ...]
+        print(f"Load: {load}, Importance: {importance}")
         balance_loss = self.experts_weight * self.n_experts * (load * importance).mean()
         print(f"Router loss: {router_loss.item()}, Balance loss: {balance_loss.item()}")
         moe_loss = router_loss + balance_loss
