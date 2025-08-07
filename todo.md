@@ -12,3 +12,6 @@
 ----
 1. Embedding values >> Internal Values from MoE Experts layers
 2. add a layer for rejected tokens on experts processing
+
+----
+1. Test new feedforward - only when MoE is not used

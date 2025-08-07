@@ -1,0 +1,46 @@
+{
+  "builder_name": "parquet",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "alpaca-data-pt-br",
+  "dataset_size": 18324606,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/dominguesm/alpaca-data-pt-br@99a2a14c7400e0efb8cc6e215776b58f3e958481/data/train-00000-of-00001-63604ec441480f0e.parquet": {
+      "num_bytes": 11508709,
+      "checksum": null
+    }
+  },
+  "download_size": 11508709,
+  "features": {
+    "instruction": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "input": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "output": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 29833315,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 18324606,
+      "num_examples": 51759,
+      "dataset_name": "alpaca-data-pt-br"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}

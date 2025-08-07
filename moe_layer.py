@@ -32,6 +32,9 @@ class MoELayer(nn.Module):
         # Gate: projects hidden state to expert logits
         self.gate = nn.Linear(self.d_model, self.n_experts, bias=False)
 
+        # Non-expert layer
+        self.non_expert_layer = nn.Linear(self.d_model, self.d_model, bias=False)
+
         # Experts: each is a 2-layer feedforward network
         self.experts = nn.ModuleList(
             [
@@ -104,17 +107,27 @@ class MoELayer(nn.Module):
         positions_in_expert = torch.cumsum(dispatch_mask, dim=0)  # (S, n_experts)
         # (S, n_experts), Boolean
         in_capacity = positions_in_expert <= capacity
+        out_of_capacity = positions_in_expert > capacity
 
         # 6. Dispatch tokens to experts
         expert_inputs = []
+        # non_expert_inputs = []
+
+        _non_expert_tensor = torch.ones(S, device=H.device, dtype=torch.long)
+
         for e in range(self.n_experts):
             mask_e = (dispatch_mask[:, e] > 0) & (in_capacity[:, e])  # (S,)
+            _non_expert_tensor[mask_e] = 0
+
             # (<=capacity, d)
             tokens_e = H_flat[mask_e]
+
             expert_inputs.append(tokens_e)
 
         # 7. Forward each expert
         expert_outputs = []
+        non_expert_outputs = self.non_expert_layer(H_flat[_non_expert_tensor.bool()])
+
         for e in range(self.n_experts):
             if expert_inputs[e].shape[0] > 0:
                 expert_out_e = self.experts[e](expert_inputs[e])  # (n_tokens_e, d)
@@ -130,6 +143,7 @@ class MoELayer(nn.Module):
             idxs = mask_e.nonzero(as_tuple=False).squeeze(-1)
             H_out_flat[idxs] = expert_outputs[e]
 
+        H_out_flat[_non_expert_tensor.bool()] = non_expert_outputs
         # 9. Reshape back to (B, T, d)
         H_out = H_out_flat.view(B, T, d)
 

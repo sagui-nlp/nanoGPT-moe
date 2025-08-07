@@ -124,16 +124,20 @@ class MLP(nn.Module):
         x = self.gelu(x)
         x = self.c_proj(x)
         x = self.dropout(x)
-        return x
+        return x, 0
 
 
 class Block(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, use_moe=True):
         super().__init__()
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
         self.attn = CausalSelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
-        self.mlp = MoELayer(config)
+
+        if use_moe:
+            self.mlp = MoELayer(config)
+        else:
+            self.mlp = MLP(config)
 
     def forward(self, x, attention_mask=None):
         x = x + self.attn(self.ln_1(x), attention_mask=attention_mask)
@@ -174,7 +178,9 @@ class GPT(nn.Module):
                 wte=nn.Embedding(config.vocab_size, config.n_embd),
                 wpe=nn.Embedding(config.block_size, config.n_embd),
                 drop=nn.Dropout(config.dropout),
-                h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+                h=nn.ModuleList(
+                    [Block(config, use_moe=True) for i in range(config.n_layer)]
+                ),
                 ln_f=LayerNorm(config.n_embd, bias=config.bias),
             )
         )
@@ -446,7 +452,9 @@ if __name__ == "__main__":
     # Example usage of the GPT model
     tokenizer = AutoTokenizer.from_pretrained("pierreguillou/gpt2-small-portuguese")
 
-    text = "Quem era Jim Henson? Jim Henson era um"
+    text = (
+        "Quem era Jim Henson? Jim Henson era um Quem era Jim Henson? Jim Henson era um"
+    )
 
     inputs = tokenizer(text, return_tensors="pt")
     input_ids = inputs["input_ids"]
