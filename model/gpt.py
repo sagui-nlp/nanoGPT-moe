@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from moe_layer import MoELayer
+from .moe_layer import MoELayer
 
 
 class LayerNorm(nn.Module):
@@ -164,6 +164,7 @@ class GPTConfig:
     dropout: float = 0.0
     # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     bias: bool = True
+    use_moe: bool = True
 
 
 class GPT(nn.Module):
@@ -179,7 +180,10 @@ class GPT(nn.Module):
                 wpe=nn.Embedding(config.block_size, config.n_embd),
                 drop=nn.Dropout(config.dropout),
                 h=nn.ModuleList(
-                    [Block(config, use_moe=True) for i in range(config.n_layer)]
+                    [
+                        Block(config, use_moe=config.use_moe)
+                        for i in range(config.n_layer)
+                    ]
                 ),
                 ln_f=LayerNorm(config.n_embd, bias=config.bias),
             )
@@ -368,8 +372,7 @@ class GPT(nn.Module):
             {"params": decay_params, "weight_decay": weight_decay},
             {"params": nodecay_params, "weight_decay": 0.0},
         ]
-        num_decay_params = sum(p.numel() for p in decay_params)
-        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        # (counts could be logged for debugging if needed)
         # print(
         #     f"num decayed parameter tensors: {len(decay_params)}, with {
         #         num_decay_params:,
@@ -387,7 +390,7 @@ class GPT(nn.Module):
         optimizer = torch.optim.AdamW(
             optim_groups, lr=learning_rate, betas=betas, **extra_args
         )
-        print(f"using fused AdamW: {use_fused}")
+        # print(f"using fused AdamW: {use_fused}")
 
         return optimizer
 

@@ -15,3 +15,14 @@
 
 ----
 1. Test new feedforward - only when MoE is not used
+
+
+
+-----------------
+
+1. NanoGPT
+2. NanoGPT-moe
+3. Overfitting NanoGPT-moe
+4. Explore relation load x balance
+5. Explore relation capacity x n_experts
+6. Explore the importance (understand the distribution of tokens per expert)
