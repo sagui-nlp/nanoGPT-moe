@@ -4,7 +4,7 @@ from transformers import AutoTokenizer
 from model import GPT, GPTConfig
 
 # --- Training params ---
-EPOCHS = 500
+EPOCHS = 1000
 LR = 1e-4
 WEIGHT_DECAY = 1e-2
 BETAS = (0.9, 0.95)
@@ -44,15 +44,22 @@ with torch.no_grad():
     logits, loss = model(input_ids, targets=targets)
 init_ppl = torch.exp(loss).item() if loss is not None else float("nan")
 print(f"\n=== Initial | Loss {loss.item():.4f} | PPL {init_ppl:.4f} ===")
-pred_tokens = logits.argmax(dim=-1)
-print("[Model prediction]", tokenizer.decode(pred_tokens[0].tolist()))
-gen_init = model.generate(
+# pred_tokens = logits.argmax(dim=-1)
+# print("[Next Token prediction]", tokenizer.decode(pred_tokens[0].tolist()))
+generated_ids = model.generate(
     input_ids[:, :CONT_PREFIX_TOKENS].clone(),
-    max_new_tokens=10,
+    max_new_tokens=25,
     temperature=0.1,
     top_k=1,
 )
-print("[Generated continuation]", tokenizer.decode(gen_init[0].tolist()))
+print(
+    "[Received Tokens]",
+    tokenizer.decode(input_ids[0, :CONT_PREFIX_TOKENS].tolist()),
+)
+print(
+    "[Generated continuation]",
+    tokenizer.decode(generated_ids[0, CONT_PREFIX_TOKENS:].tolist()),
+)
 
 # Optimizer
 optimizer = model.configure_optimizers(
@@ -87,9 +94,9 @@ for epoch in range(EPOCHS):
         )
         model.eval()
         with torch.no_grad():
-            logits, _ = model(input_ids, targets=targets)
-            pred_tokens = logits.argmax(dim=-1)
-            print("[Model prediction]", tokenizer.decode(pred_tokens[0].tolist()))
+            # logits, _ = model(input_ids, targets=targets)
+            # pred_tokens = logits.argmax(dim=-1)
+            # print("[Model prediction]", tokenizer.decode(pred_tokens[0].tolist()))
             generated_ids = model.generate(
                 input_ids[:, :CONT_PREFIX_TOKENS].clone(),
                 max_new_tokens=25,
@@ -97,5 +104,10 @@ for epoch in range(EPOCHS):
                 top_k=1,
             )
             print(
-                "[Generated continuation]", tokenizer.decode(generated_ids[0].tolist())
+                "[Received Tokens]",
+                tokenizer.decode(input_ids[0, :CONT_PREFIX_TOKENS].tolist()),
+            )
+            print(
+                "[Generated continuation]",
+                tokenizer.decode(generated_ids[0, CONT_PREFIX_TOKENS:].tolist()),
             )

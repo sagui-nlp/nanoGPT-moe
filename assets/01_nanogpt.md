@@ -1,34 +1,119 @@
-# Do nanoGPT ao nanoMoE
+De qualquer forma mandar aqui por garantia 
+---
+layout: default
+title:  "NanoGPT ao nanoMoE: Part-1 Nano GPT"
+date:   2025-08-23 22:03:16 -0300
+categories: moe
+---
 
-Apesar da alta dos LLMs gigantes, os modelos menores e abertos são extremamente úteis pra testar ideias e entender como as coisas funcionam. Um exemplo é o nanoGPT do Karpathy, dá para explorar o código, testar cada parâmetro e entender como cada coisa funciona (sem precisar de uma infinidade de GPU mas se desejar ainda dá pra usar uma T4 do colab). Nesta trilha do nanoMoE, vamos iniciar com um treino simples em pt-br no nanoGPT para explorar o código e estrutura do modelo antes de prosseguir para o MoE.
+<!-- 
+1. Adicionar figuras da arquitetura
+2. nanoGPT to nanoMoE
+   1. nanoGPT
+      1. Explicar o nanoGPT
+      2. Justificar a escolha do modelo nanoGPT para o nanoMoE
+         1. opensource, sem dependência externa (como HF/TF)
+      3. Adicionar explicações dos parâmetros do GPTconfig
+      4. Explicar os resultados obtidos
+   2. nanoMoE
+ -->
+
+<!-- # Do nanoGPT ao nanoMoE
+<INTRODUÇÃO SOBRE A SAGA NANO GPT AO NANO MOE> -->
+
+## nanoGPT
+
+NanoGPT é uma implementação do modelo GPT, foi escrito com foco em simplicidade e didática, tornando o código acessível para quem deseja entender ou modificar os detalhes do funcionamento de um transformer. O projeto se destaca por dispensar dependências externas complexas e por oferecer um código limpo e direto: o arquivo train.py contém um loop de treinamento e o modelo GPT em poucas linhas.
+
+O nanoGPT permite que pesquisadores e entusiastas testem ideias, ajustem hiperparâmetros e explorem o funcionamento interno dos transformers sem a necessidade de grandes infraestruturas. O projeto serve como uma base para experimentos e extensões, como a implementação de arquiteturas MoE (Mixture of Experts), tornando-o uma ferramenta valiosa para quem deseja aprender em modelos de linguagem.
+
+Nos próximos posts, vamos detalhar a arquitetura e o processo de treinamento do nanoGPT, mostrando as principais etapas e decisões técnicas envolvidas. Em seguida, serão apresentadas as modificações necessárias para implementar o MoE (Mixture of Experts) e os principais desafios encontrados durante o desenvolvimento dessa extensão.
 
 ## Por que testar um modelo pequeno?
 
-- Treinamento rápido
-- Entender como a cada época o modelo passa a gerar textos mais alinhados ao treinamento
-- Alterar um parâmetro por vez e entender como ele altera o comportamento do modelo
-- Exercitar a intuição antes de escalar
+- Iteração rápida: treinos em minutos permitem ajustar código e hiperparâmetros sem esperar horas.
+- Custo baixo: consome pouca GPU/CPU e evita otimizações prematuras de infraestrutura.
+- Diagnóstico claro: overfitting, instabilidade de loss ou bugs aparecem de forma mais visível.
+- Intuição incremental: mudar 1 hiperparâmetro (n_layer, n_head, n_embd, dropout) e observar efeito direto em loss/perplexity.
+- Sanidade da pipeline: garantir que tokenização, shift de targets e geração funcionam (overfit controlado de um único parágrafo).
+- Baseline mínima: estabelece referência para comparar futuras melhorias (ex: adicionar MoE) e medir ganho real.
+- Facilidade de depuração: menos parâmetros reduzem ruído ao investigar gradientes ou explosões numéricas.
+- Preparação para escalar: entender limites (quando saturar) antes de investir em modelos maiores.
 
-Essas etapas foram muito importantes para alguns experimentos posteriores do nanoMoE.
+## Entendendo o nanoGPT através dos parâmetros
+
+A seguir está a implementação da classe GPTConfig, que define os principais parâmetros do modelo. Cada parâmetro influencia diretamente a capacidade, desempenho e comportamento do nanoGPT durante o treinamento e a geração de texto.
+
+``` python
+class GPTConfig:
+    block_size: int = 1024
+    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
+    n_layer: int = 12
+    n_head: int = 12
+    n_embd: int = 768
+    dropout: float = 0.0
+    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+```
+
+- *block_size*: define o tamanho do contexto processado pelo modelo. Nesta implementação o modelo de atenção é implementada de forma quadrática, diferente de modelos mais recentes, como o Mixtral, utilizam abordagens diferentes como SMoE. Caso queira entender mais sobre atenção [illustrated-transformer](https://jalammar.github.io/illustrated-transformer/)
+- *vocab_size*: quantidade de tokens distintos que o modelo pode representar.
+- *n_layer*: número de camadas do transformer, no caso do gpt-2 apenas blocos decoder. Um número maior de camadas permite que o modelo aprenda padrões mais complexos, entretanto, aumenta o custo das operações divido ao md(o(block_size)^2*n_embd)
+- *n_head*: número de cabeças de atenção. Divide n_embd em n_head partes; cada cabeça aprende relações distintas e depois são concatenadas. Com maior número de n_head o modelo aprende mais relações paralelamente.
+- *n_embd*: dimensão do embedding dos tokens. Embeddings maiores aumentam a capicidade de representação do modelo.
+- *dropout*: taxa de dropout aplicada durante o treinamento para evitar overfitting. Valores maiores podem contribuir na generalização em conjunto de dados pequenos, mas em atrasar a convergência em conjuntos de dados maiores. 
+- *bias*: controla o uso de bias nas camadas lineares e de normalização. Redes mais recentes não utilizam, tendo em vista que pode trazer pequenas melhorias de desempenho [ref]()
+
+
+## Como Avaliar um modelo GPT ? Métricas útilizadas
+
+- Loss: cross-entropy por token
+<div align="center">
+
+$$
+\mathcal{L}_{CE}
+= -\frac{1}{T}\sum_{t=1}^{T} \log p_\theta(x_t \mid x_{<t})
+$$
+
+</div>
+
+- Perplexity: exp(loss) - A perplexidade é utilizada pela sua melhor interpretabilidade, o seu valor inicial, antes do treino, é aproximadamente igual o tamanho do vocabulário. Valores próximos de 1 indicam que o modelo memorizou os dados.
+### Perplexity
+
+<div align="center">
+
+$$
+\mathrm{PPL} = \exp\!\big(\mathcal{L}_{CE}\big)
+$$
+
+</div>
 
 ## Estrutura do script
 
 Fluxo básico:
-1. Tokeniza um único texto
-   1. nesse caso estamos usando um único texto pois nosso objetivo é testar se o modelo é capaz de aprender um único exemplo antes de escalar para um treinamento mais difícil, com muitos exemplos
-2. Cria os alvos deslocando 1 token
-   1. lembre-se que na tarefa de NTP next-token-prediction o modelo aprende prevendo o próximo token
-3. Treino em algumas épocas
-4. A cada 25%: imprime loss, perplexity, reconstrução e continuação gerada
-   1. Reconstrução - previsão do modelo para cada token do treino
-   2. Continuação - o modelo recebe um conjunto de tokens e gera alguns tokens a partir dele
+1. Tokeniza um único texto: usamos apenas um exemplo para teste de sanidade; o objetivo inicial é verificar se o modelo consegue memorizar antes de escalar para mais dados, caso não consiga, provavelmente há um bug no modelo ou no processamento dos dados. 
+2. Cria os alvos deslocando 1 token: tarefa de next-token prediction (cada posição prevê o próximo). A predição do último token é ignorada pela loss. 
+3. Treina por algumas épocas: acompanhamos o comportamento da loss e da perplexity até estabilizar.
+4. Por padrão, a cada 25% das épocas fazemos o evaluation. Serão exibidos dois logs:
+- reconstrução: indica a previsão token a token em relação ao texto de treino.
+- continuação: o modelo recebe um trecho do texto de treino e completa até o número de tokens desejados. 
 
-## Parâmetros principais
+Esse ciclo valida pipeline (tokenização, shift, forward, loss, geração) antes de aumentar complexidade.
 
-Trecho (não o arquivo completo):
+## Preparando dados
 
-```python
-# --- Training params ---
+``` python
+inputs = tokenizer(text, return_tensors="pt")
+input_ids = inputs["input_ids"].to(device)
+targets = input_ids.clone()
+targets[:, :-1] = input_ids[:, 1:]
+targets[:, -1] = -1  # ignora último na loss
+```
+
+O tokenizer utilizado é baseado em uma versão em pt-br do GPT-2 [tokenizer](https://huggingface.co/pierreguillou/gpt2-small-portuguese).
+
+## Parâmetros principais de treinamento
+
+``` python
 EPOCHS = 500
 LR = 1e-4
 WEIGHT_DECAY = 1e-2
@@ -44,17 +129,6 @@ Resumo rápido:
 - BETAS: mexe na inércia do AdamW
 - CONT_PREFIX_TOKENS: quantos tokens iniciais mantemos para a continuação (se for 10, o modelo recebe 10 tokens e gera até 25 novos tokens, você pode alterar isso)
 
-## Preparando dados
-
-```python
-inputs = tokenizer(text, return_tensors="pt")
-input_ids = inputs["input_ids"].to(device)
-targets = input_ids.clone()
-targets[:, :-1] = input_ids[:, 1:]
-targets[:, -1] = -1  # ignora último na loss
-```
-
-shift para previsão do próximo token
 
 ## Config mínima do modelo
 
@@ -65,10 +139,8 @@ config = GPTConfig(
 	n_layer=4,
 	n_head=4,
 	n_embd=128,
-	k=1,          # MoE desligado (top-k routing futuro)
 	dropout=0.2,
 	bias=True,
-    use_moe=False, # Desativa MoE e utiliza MLP's já implementadas do nanoGPT
 )
 model = GPT(config).to(device)
 ```
@@ -80,14 +152,14 @@ Note que os parâmetros irão começar a escalar à medida que esses valores aum
 
 ```python
 with torch.no_grad():
-	logits, loss = model(input_ids, targets=targets)
-print("Loss inicial:", loss.item())
+    logits, loss = model(input_ids, targets=targets)
+init_ppl = torch.exp(loss).item() if loss is not None else float("nan")
 ```
 
 Geração inicial (prefixo curto):
 
 ```python
-gen_init = model.generate(
+generated_ids = model.generate(
 	input_ids[:, :CONT_PREFIX_TOKENS],
 	max_new_tokens=10,
 	temperature=0.1,
@@ -95,11 +167,9 @@ gen_init = model.generate(
 )
 ```
 
-temperature baixa + top_k=1 ≈ quase greedy.
-
 ## Loop de treino
 
-```python
+``` python
 for epoch in range(EPOCHS):
 	optimizer.zero_grad()
 	_, loss = model(input_ids, targets=targets)
@@ -111,39 +181,22 @@ for epoch in range(EPOCHS):
 
 Checkpoint a cada 25% do treino:
 
-```python
+``` python
 def is_quarter(e):
 	return e == EPOCHS or e % (EPOCHS // 4) == 0
 ```
 
-## Métricas
+## Execução direta
 
-- Loss: cross-entropy por token
-- Perplexity: exp(loss) - note que no início do treino temos uma perplexidade próxima ao tamanho do vocabulário, isto é normal já que com os pesos aleatórios o modelo tem aproximadamente a mesma probabilidade de gerar qualquer token do vocabulário
-- Model prediction: reconstrução do texto do treinamento
-- Generated continuation: gera só com uma parte dos tokens, parâmetro CONT_PREFIX_TOKENS
-
-## Experimentos rápidos
-
-1. Capacidade vs velocidade: subir n_embd e medir epochs até PPL < 2
-2. Dropout zero: comparar convergência
-3. Prefixo curto (3 tokens): ver deriva
-4. LR alto (5e-3): observar oscilação
-5. Texto maior: concatenar 3 parágrafos e ajustar profundidade
-
+``` bash
+pip install uv
+uv sync
+uv run -m scripts.01_train_nanogpt
+```
 
 ## Próximo post
 
 Vamos adicionar a camada MoE: gate, top‑k, métricas de balanceamento e impacto na perplexity.
 
----
 
-Código completo: veja `scripts/01_train_nanogpt.py` no repositório.
-
-## Execução direta
-
-```bash
-pip install uv
-uv sync
-uv run -m scripts.01_train_nanogpt
-```
+Código completo: veja [scripts/01_train_nanogpt.py](https://github.com/sagui-nlp/nanoGPT-moe/blob/feat/blog-writing/scripts/01_train_nanogpt.py) no repositório.
