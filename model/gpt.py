@@ -181,7 +181,7 @@ class GPT(nn.Module):
                 drop=nn.Dropout(config.dropout),
                 h=nn.ModuleList(
                     [
-                        Block(config, use_moe=config.use_moe)
+                        Block(config, use_moe=config.use_moe and i % 2 == 1)
                         for i in range(config.n_layer)
                     ]
                 ),
@@ -479,6 +479,7 @@ if __name__ == "__main__":
         router_weight=0.01,
         dropout=0.2,
         bias=True,
+        use_moe=True
     )
 
     model = GPT(config)
